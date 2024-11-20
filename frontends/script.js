@@ -44,39 +44,35 @@ resetMaxValueButton.addEventListener("click", () => {
 });
 getMicrophones();
 let lastRMSUpdate = 0;
-const rmsUpdateInterval = 100;
+const rmsUpdateInterval = 200;
+let activeStream = null;
+let activeSource = null;
+let activeAnalyser = null;
+let monitorRequest = null;
 async function startMonitoring(stream) {
   try {
+    if (activeStream) activeStream.getTracks().forEach((track) => track.stop());
+    if (activeSource && activeAnalyser) {
+      activeSource.disconnect();
+      activeAnalyser.disconnect();
+    }
+    activeStream = stream;
     // Zugriff auf das Mikrofon
-    const source = audioContext.createMediaStreamSource(stream);
+    activeSource = audioContext.createMediaStreamSource(activeStream);
 
     // AnalyserNode für Pegelanalyse
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 4096; // Kürzere FFT für schnellere Reaktion
-    source.connect(analyser);
+    activeAnalyser = audioContext.createAnalyser();
+    activeAnalyser.fftSize = 4096; // Kürzere FFT für schnellere Reaktion
+    activeSource.connect(activeAnalyser);
 
     // Daten-Array erstellen
-    // const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    const dataArray = new Float32Array(analyser.frequencyBinCount);
-
-    // Ton-Generator (Piepton)
-    // const oscillator = audioContext.createOscillator();
-    // const gainNode = audioContext.createGain();
-    // oscillator.type = "sine";
-    // oscillator.frequency.value = 1000; // Piepton-Frequenz in Hz
-    // oscillator.connect(gainNode);
-    // gainNode.connect(audioContext.destination);
-    // gainNode.gain.value = 0; // Standard: Lautstärke aus
-
-    // oscillator.start();
-
-    //audiofile
-    // const buzzerNode = audioContext.createMediaElementSource(buzzerAudio);
-    // buzzerNode.connect(audioContext.destination);
-
+    const dataArray = new Float32Array(activeAnalyser.frequencyBinCount);
+    if (monitorRequest) {
+      cancelAnimationFrame(monitorRequest);
+    }
     function monitor() {
       // Audiodaten abrufen
-      analyser.getFloatTimeDomainData(dataArray);
+      activeAnalyser.getFloatTimeDomainData(dataArray);
 
       // Berechnung des RMS (Root Mean Square)
       let sum = 0;
@@ -85,8 +81,6 @@ async function startMonitoring(stream) {
         sum += value * value;
       }
       const rms = Math.sqrt(sum / dataArray.length); // * 128;
-      // volumeBar.style.height = `${Math.min((100 * rms) / 128 + 50, 100)}%`;
-      //   const rms = 2;
       let calibrationOffset = 100;
       let db = rms >= 0.0000000001 ? 20 * Math.log10(rms) : -99999;
       db += calibrationOffset;
@@ -95,25 +89,20 @@ async function startMonitoring(stream) {
       volumeBar.style.clipPath = `inset(${barFilled}% 0px 0px 0px)`;
       let now = Date.now();
       if (now - lastRMSUpdate >= rmsUpdateInterval) {
-        // textField.innerText = `RMS Value: ${rms.toFixed(2)}`;
         textField.innerText = `dB Value: ${db.toFixed(0)}`;
         lastRMSUpdate = now;
-        // if (iterationCount % 20 == 0)
       }
       if (db > maxdBValue) {
         maxdBValue = db;
-        textFieldMaxValue.innerText = `Max Value: ${db.toFixed(0)}`;
+        textFieldMaxValue.innerText = `Max Value: ${maxdBValue.toFixed(0)}`;
       }
 
       // Schwellenwert überprüfen
       if (db > threshold && started) {
-        // gainNode.gain.value = 0.5; // Ton an
         buzzerAudio.play();
       }
-      //   } else {
-      //     gainNode.gain.value = 0; // Ton aus
-      //   }
-      requestAnimationFrame(monitor); // Wiederholen
+
+      monitorRequest = requestAnimationFrame(monitor); // Wiederholen
     }
 
     monitor();
